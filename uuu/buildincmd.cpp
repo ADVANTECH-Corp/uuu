@@ -39,8 +39,18 @@ BuildCmd g_buildin_cmd[] =
 		,"burn boot loader to eMMC boot partition"
 	},
 	{
+		"emmc_adv",
+#include "emmc_burn_loader_adv.clst"
+		,"burn boot loader to eMMC(not mmc boot partition)"
+	},
+	{
 		"emmc_all",
 #include "emmc_burn_all.clst"
+		,"burn whole image to eMMC"
+	},
+	{
+		"emmc_all_adv",
+#include "emmc_burn_all_adv.clst"
 		,"burn whole image to eMMC"
 	},
 	{
