@@ -24,7 +24,9 @@ endif()
 set(LSTS
 	uuu.lst
 	emmc_burn_loader.lst
+	emmc_burn_loader_adv.lst
 	emmc_burn_all.lst
+	emmc_burn_all_adv.lst
 	fat_write.lst
 	qspi_burn_loader.lst
 	sd_burn_loader.lst
