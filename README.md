@@ -57,7 +57,7 @@ The prebuilt image and document are here:
 - cd mfgtools
 - git submodule init
 - git submodule update
-- open msvs/uuu.sln with Visual Studio 2017
+- open msvs/uuu-static-link.sln with Visual Studio 2017
 
 Visual Studio
 
