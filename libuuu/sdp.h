@@ -35,6 +35,7 @@
 
 #include <climits>
 
+class FileBuffer;
 class HIDReport;
 
 #pragma pack (1)
@@ -99,61 +100,72 @@ public:
 	};
 
 	SDPCmdBase(char *p) :CmdBase(p) { init_cmd(); }
-	SDPCmd m_spdcmd;
-	std::string m_filename;
-	vector<uint8_t> m_input;
-	shared_ptr<FileBuffer> m_filebuff;
 
-	int init_cmd();
-	int send_cmd(HIDReport *p);
-	int get_status(HIDReport *p, uint32_t &status, uint8_t report_id);
-	IvtHeader * search_ivt_header(shared_ptr<FileBuffer> data, size_t &off, size_t limit=ULLONG_MAX);
-
-	HAB_t get_hab_type(HIDReport *report);
-
+protected:
 	int check_ack(HIDReport *report, uint32_t ack);
+	HAB_t get_hab_type(HIDReport *report);
+	int get_status(HIDReport *p, uint32_t &status, uint8_t report_id);
+	int init_cmd();
+	IvtHeader * search_ivt_header(std::shared_ptr<FileBuffer> data, size_t &off, size_t limit=ULLONG_MAX);
+
+	std::string m_filename;
+	SDPCmd m_spdcmd;
+
+private:
+	int send_cmd(HIDReport *p);
+
+	std::vector<uint8_t> m_input;
 };
 
 class SDPBootlogCmd : public SDPCmdBase
 {
 public:
 	SDPBootlogCmd(char *p);
-	int run(CmdCtx *);
+	int run(CmdCtx *) override;
 };
 
 class SDPDcdCmd : public SDPCmdBase
 {
 public:
-	uint32_t m_dcd_addr;
 	SDPDcdCmd(char *p);
-	int run(CmdCtx *);
+	int run(CmdCtx *) override;
 
+private:
+	uint32_t m_dcd_addr;
 };
 
 class SDPReadMemCmd : public SDPCmdBase
 {
 public:
+	SDPReadMemCmd(char*p);
+	int run(CmdCtx *) override;
+
+private:
 	uint32_t m_mem_addr;
 	uint8_t m_mem_format;
-
-	SDPReadMemCmd(char*p);
-	int run(CmdCtx *);
 };
 
 class SDPWriteMemCmd : public SDPCmdBase
 {
 public:
+	SDPWriteMemCmd(char*p);
+	int run(CmdCtx *p) override;
+
+private:
 	uint32_t m_mem_addr;
 	uint8_t m_mem_format;
 	uint32_t m_mem_value;
-
-	SDPWriteMemCmd(char*p);
-	int run(CmdCtx *p);
 };
 
 class SDPWriteCmd : public SDPCmdBase
 {
 public:
+	SDPWriteCmd(char*p);
+
+	int run(CmdCtx *p) override;
+	int run(CmdCtx *p, void *buff, size_t size, uint32_t addr);
+
+private:
 	uint32_t m_download_addr;
 	int32_t m_Ivt;
 	int m_PlugIn;
@@ -162,44 +174,43 @@ public:
 	bool m_bIvtReserve;
 	bool m_bskipspl;
 	bool m_bskipfhdr;
-
-	SDPWriteCmd(char*p);
-
-	int run(CmdCtx *p);
-	int run(CmdCtx *p, void *buff, size_t size, uint32_t addr);
 };
 
 class SDPJumpCmd : public SDPCmdBase
 {
 public:
-	bool m_Ivt;
-	bool m_PlugIn;
-	bool m_clear_dcd;
-	uint32_t m_jump_addr;
 	SDPJumpCmd(char*p);
-	int run(CmdCtx *p);
+	int run(CmdCtx *p) override;
+
+private:
+	bool m_clear_dcd = false;
+	bool m_Ivt;
+	uint32_t m_jump_addr = 0;
+	bool m_PlugIn;
 };
 
 class SDPSkipDCDCmd :public SDPCmdBase
 {
 public:
 	SDPSkipDCDCmd(char *p);
-	int run(CmdCtx *p);
+	int run(CmdCtx *p) override;
 };
 
 class SDPStatusCmd :public SDPCmdBase
 {
 public:
 	SDPStatusCmd(char *p);
-	int run(CmdCtx *p);
+	int run(CmdCtx *p) override;
 };
 
 class SDPBootCmd : public SDPCmdBase
 {
 public:
-	bool m_nojump;
-	bool m_clear_dcd;
-	uint32_t m_dcd_addr;
 	SDPBootCmd(char *p);
-	int run(CmdCtx *p);
+	int run(CmdCtx *p) override;
+
+private:
+	bool m_clear_dcd = false;
+	uint32_t m_dcd_addr = 0;
+	bool m_nojump = false;
 };

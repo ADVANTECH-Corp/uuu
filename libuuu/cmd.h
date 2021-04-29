@@ -39,13 +39,15 @@
 class ConfigItem;
 
 std::string get_next_param(const std::string &cmd, size_t &pos, char sperate = ' ');
-std::string remove_square_brackets(const std::string &cmd);
-int get_string_in_square_brackets(const std::string &cmd, std::string &context);
 
 class CmdCtx
 {
 public:
+	CmdCtx() = default;
+	CmdCtx(const CmdCtx&) = delete;
+	CmdCtx& operator=(const CmdCtx&) = delete;
 	virtual ~CmdCtx();
+
 	ConfigItem *m_config_item = nullptr;
 	void *m_dev = nullptr;
 };
@@ -82,26 +84,30 @@ struct Param
 class CmdBase
 {
 public:
-	std::vector<Param> m_param;
-	uint64_t m_timeout = 2000;
-	bool m_lastcmd = false;
-	std::string m_cmd;
-	bool m_NoKeyParam = false;
-	bool m_bCheckTotalParam = false;
-
 	CmdBase() = default;
 	CmdBase(char *p) { if (p) m_cmd = p; }
 	virtual ~CmdBase();
 
+	virtual int dump();
+	const std::string& get_cmd() const noexcept { return m_cmd; }
+	bool get_lastcmd() const noexcept { return m_lastcmd; }
 	void insert_param_info(const char *key, void *pD, Param::Type tp, bool ignore_case = true, const char* err = nullptr)
 	{
 		m_param.emplace_back(Param{key, pD, tp, ignore_case, err});
 	}
-
 	virtual int parser_protocal(char *p, size_t &pos);
 	virtual int parser(char *p = nullptr);
 	virtual int run(CmdCtx *p) = 0;
-	virtual int dump();
+
+protected:
+	bool m_bCheckTotalParam = false;
+	std::string m_cmd;
+	bool m_lastcmd = false;
+	bool m_NoKeyParam = false;
+	uint64_t m_timeout = 2000;
+
+private:
+	std::vector<Param> m_param;
 };
 
 using CreateCmdObj = std::shared_ptr<CmdBase> (*) (char *);
@@ -116,28 +122,46 @@ class CmdDone :public CmdBase
 {
 public:
 	CmdDone(char *p) :CmdBase(p) { m_lastcmd = true; }
+
 	int run(CmdCtx *p) override;
 };
 
 class CmdDelay :public CmdBase
 {
 public:
-	int m_ms = 0;
 	CmdDelay(char *p) :CmdBase(p) {}
+
 	int parser(char *p = nullptr) override;
 	int run(CmdCtx *p) override;
+
+private:
+	int m_ms = 0;
 };
 
 class CmdShell : public CmdBase
 {
 public:
-	std::string m_shellcmd;
-	std::string m_protocal;
-	bool	m_dyn = false;
-
 	CmdShell(char *p) : CmdBase(p) {}
+
 	int parser(char *p = nullptr) override;
 	int run(CmdCtx *p) override;
+
+private:
+	bool m_dyn = false;
+	std::string m_protocal;
+	std::string m_shellcmd;
+};
+
+class CmdEnv : public CmdBase
+{
+public:
+	using CmdBase::CmdBase;
+
+	int parser(char *p = nullptr) override;
+	int run(CmdCtx *p) override;
+
+private:
+	std::string m_unfold_cmd;
 };
 
 class CmdList : public std::vector<std::shared_ptr<CmdBase>>
@@ -156,6 +180,7 @@ class CfgCmd :public CmdBase
 {
 public:
 	CfgCmd(char *cmd) :CmdBase(cmd) {}
+
 	int parser(char * /*p*/) override { return 0; }
 	int run(CmdCtx *p) override;
 };

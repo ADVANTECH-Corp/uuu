@@ -29,16 +29,14 @@
 *
 */
 
-#include <array>
-#include <string>
-#include "sdps.h"
-#include "config.h"
-#include "hidreport.h"
-#include "liberror.h"
-#include "libcomm.h"
-#include "buffer.h"
-#include "sdp.h"
 #include "rominfo.h"
+#include "buffer.h"
+#include "config.h"
+#include "libcomm.h"
+
+#include <array>
+
+using namespace std;
 
 static constexpr std::array<ROM_INFO, 15> g_RomInfo
 {
@@ -54,34 +52,37 @@ static constexpr std::array<ROM_INFO, 15> g_RomInfo
 	ROM_INFO{ "MXRT106X",	 0x1000,     ROM_INFO_HID | ROM_INFO_HID_MX6 | ROM_INFO_HID_SKIP_DCD },
 	ROM_INFO{ "MX8QXP",      0x0,        ROM_INFO_HID | ROM_INFO_HID_NO_CMD | ROM_INFO_HID_UID_STRING },
 	ROM_INFO{ "MX28",	 0x0,        ROM_INFO_HID},
-	ROM_INFO{ "MX815",       0x0,        ROM_INFO_HID | ROM_INFO_HID_NO_CMD | ROM_INFO_HID_UID_STRING | ROM_INFO_HID_EP1 | ROM_INFO_HID_PACK_SIZE_1020 },
+	ROM_INFO{ "MX815",       0x0,        ROM_INFO_HID | ROM_INFO_HID_NO_CMD | ROM_INFO_HID_UID_STRING | ROM_INFO_HID_EP1 | ROM_INFO_HID_PACK_SIZE_1020 | ROM_INFO_HID_ROMAPI},
 	ROM_INFO{ "SPL",	 0x0,	     ROM_INFO_HID | ROM_INFO_HID_MX6 | ROM_INFO_SPL_JUMP | ROM_INFO_HID_SDP_NO_MAX_PER_TRANS},
 	ROM_INFO{ "SPL1",	 0x0,	     ROM_INFO_HID | ROM_INFO_HID_MX6 | ROM_INFO_SPL_JUMP | ROM_INFO_HID_SDP_NO_MAX_PER_TRANS | ROM_INFO_AUTO_SCAN_UBOOT_POS},
 };
 
-const ROM_INFO * search_rom_info(const char *s)
+const ROM_INFO * search_rom_info(const std::string &s)
 {
-	string s1 = s;
-	for (size_t i = 0; i < sizeof(g_RomInfo) / sizeof(ROM_INFO); i++)
-	{
-		string s2;
-		s2 = g_RomInfo[i].m_name;
-		if (s1 == s2)
-			return &g_RomInfo[i];
+	for (const auto &rom_info : g_RomInfo) {
+		if (s == rom_info.m_name)
+		{
+			return &rom_info;
+		}
 	}
-	return 0;
+
+	return nullptr;
 }
 
 const ROM_INFO * search_rom_info(const ConfigItem *item)
 {
 	if (item == nullptr)
+	{
 		return nullptr;
+	}
 
-	const ROM_INFO *p = search_rom_info(item->m_chip.c_str());
+	const ROM_INFO * const p = search_rom_info(item->m_chip);
 	if (p)
+	{
 		return p;
+	}
 
-	return search_rom_info(item->m_compatible.c_str());
+	return search_rom_info(item->m_compatible);
 }
 
 
@@ -89,7 +90,7 @@ const ROM_INFO * search_rom_info(const ConfigItem *item)
 #define HASH_MAX_LEN	64
 
 #define CONTAINER_HDR_ALIGNMENT 0x400
-#define CONTAINER_TAG 0x87
+static constexpr uint8_t CONTAINER_TAG = 0x87;
 
 #pragma pack (1)
 struct rom_container {
@@ -117,93 +118,91 @@ struct rom_bootimg {
 };
 
 
-#define IMG_V2X		0x0B
+static constexpr uint32_t IMG_V2X = 0x0B;
 
 #pragma pack ()
 
 
-size_t GetContainerActualSize(shared_ptr<FileBuffer> p, size_t offset)
+size_t GetContainerActualSize(shared_ptr<FileBuffer> p, size_t offset, bool bROMAPI)
 {
-	struct rom_container *hdr;
-	int cindex = 1;
-
-	hdr = (struct rom_container *)(p->data() + offset + CONTAINER_HDR_ALIGNMENT);
-	if (hdr->tag != CONTAINER_TAG)
+	if(bROMAPI)
 		return p->size() - offset;
 
-	struct rom_bootimg *image;
+	auto hdr = reinterpret_cast<struct rom_container *>(p->data() + offset + CONTAINER_HDR_ALIGNMENT);
+	if (hdr->tag != CONTAINER_TAG)
+	{
+		return p->size() - offset;
+	}
 
 	/* Check if include V2X container*/
-	image = (struct rom_bootimg *)(p->data() + offset + CONTAINER_HDR_ALIGNMENT
+	auto image = reinterpret_cast<struct rom_bootimg *>(p->data() + offset + CONTAINER_HDR_ALIGNMENT
 		+ sizeof(struct rom_container));
 
+	unsigned int cindex = 1;
 	if ((image->flags & 0xF) == IMG_V2X)
 	{
 		cindex = 2;
-		hdr = (struct rom_container *)(p->data() + offset + cindex * CONTAINER_HDR_ALIGNMENT);
+		hdr = reinterpret_cast<struct rom_container *>(p->data() + offset + cindex * CONTAINER_HDR_ALIGNMENT);
 		if (hdr->tag != CONTAINER_TAG)
+		 {
 			return p->size() - offset;
+		}
 	}
 
-	image = (struct rom_bootimg *)(p->data() + offset + cindex * CONTAINER_HDR_ALIGNMENT
+	image = reinterpret_cast<struct rom_bootimg *>(p->data() + offset + cindex * CONTAINER_HDR_ALIGNMENT
 		+ sizeof(struct rom_container)
 		+ sizeof(struct rom_bootimg) * (hdr->num_images - 1));
 
 	uint32_t sz = image->size + image->offset + cindex * CONTAINER_HDR_ALIGNMENT;
 
-	sz = round_up(sz, (uint32_t)CONTAINER_HDR_ALIGNMENT);
+	sz = round_up(sz, static_cast<uint32_t>(CONTAINER_HDR_ALIGNMENT));
 
 	if (sz > (p->size() - offset))
+	{
 		return p->size() - offset;
-
-	hdr = (struct rom_container *)(p->data() + offset + sz);
+	}
 
 	return sz;
 }
-static uint32_t FlashHeaderMagic[] =
-{
-	0xc0ffee01,
-	0x42464346,
-	0
-};
 
 bool CheckHeader(uint32_t *p)
 {
-	int i = 0;
-	while(FlashHeaderMagic[i])
+	static constexpr std::array <uint32_t, 2> FlashHeaderMagic
 	{
-		if (*p == FlashHeaderMagic[i])
+		0xc0ffee01,
+		0x42464346
+	};
+
+	for (const auto magic_val : FlashHeaderMagic)
+	{
+		if (*p == magic_val)
+		{
 			return true;
-		i++;
+		}
 	}
+
 	return false;
 }
 
 size_t GetFlashHeaderSize(shared_ptr<FileBuffer> p, size_t offset)
 {
-	if (p->size() < offset)
-		return 0;
+	static constexpr std::array<size_t, 4> offsets
+	{
+		0,
+		0x400,
+		0x1fc,
+		0x5fc
+	};
 
-	if (CheckHeader((uint32_t*)(p->data() + offset)))
-		return 0x1000;
+	for (const auto test_offset : offsets) {
+		if (p->size() < (offset + test_offset)) {
+			return 0;
+		}
 
-	if (p->size() < offset + 0x400)
-		return 0;
-
-	if (CheckHeader((uint32_t*)(p->data() + offset + 0x400)))
-		return 0x1000;
-
-	if (p->size() < offset + 0x1fc)
-		return 0;
-
-	if (CheckHeader((uint32_t*)(p->data() + offset + 0x1fc)))
-		return 0x1000;
-
-	if (p->size() < offset + 0x5fc)
-		return 0;
-
-	if (CheckHeader((uint32_t*)(p->data() + offset + 0x5fc)))
-		return 0x1000;
+		if (CheckHeader(reinterpret_cast<uint32_t*>(p->data() + offset + test_offset))) {
+			return 0x1000;
+		}
+	}
 
 	return 0;
 }

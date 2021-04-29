@@ -29,6 +29,8 @@
 *
 */
 
+#include <regex>
+#include <iterator>
 #include <memory>
 #include <string.h>
 #include "cmd.h"
@@ -52,7 +54,9 @@ static CmdMap g_cmd_map;
 static CmdObjCreateMap g_cmd_create_map;
 static string g_cmd_list_file;
 
+int get_string_in_square_brackets(const std::string &cmd, std::string &context);
 int parser_cmd_list_file(shared_ptr<FileBuffer> pbuff, CmdMap *pCmdMap = nullptr);
+std::string remove_square_brackets(const std::string &cmd);
 
 template <class T>
 void * create_object() { return new T; }
@@ -237,7 +241,7 @@ int CmdList::run_all(CmdCtx *p, bool dry)
 		call_notify(nt);
 
 		nt.type = uuu_notify::NOTIFY_CMD_START;
-		nt.str = (char *)(*it)->m_cmd.c_str();
+		nt.str = (char *)(*it)->get_cmd().c_str();
 		call_notify(nt);
 
 		if (dry)
@@ -251,7 +255,7 @@ int CmdList::run_all(CmdCtx *p, bool dry)
 		if (ret)
 			return ret;
 
-		if ((*it)->m_lastcmd)
+		if ((*it)->get_lastcmd())
 				break;
 	}
 	return ret;
@@ -418,6 +422,8 @@ CmdObjCreateMap::CmdObjCreateMap()
 	(*this)["FASTBOOT:FLASH"] = new_cmd_obj<FBFlashCmd>;
 	(*this)["FB:ERASE"] = new_cmd_obj<FBEraseCmd>;
 	(*this)["FASTBOOT:ERASE"] = new_cmd_obj<FBEraseCmd>;
+	(*this)["FB:REBOOT"] = new_cmd_obj<FBRebootCmd>;
+	(*this)["FASTBOOT:REBOOT"] = new_cmd_obj<FBRebootCmd>;
 	(*this)["FB:OEM"] = new_cmd_obj<FBOemCmd>;
 	(*this)["FASTBOOT:OEM"] = new_cmd_obj<FBOemCmd>;
 	(*this)["FB:FLASHING"] = new_cmd_obj<FBFlashingCmd>;
@@ -446,6 +452,7 @@ CmdObjCreateMap::CmdObjCreateMap()
 	(*this)["_ALL:SH"] = new_cmd_obj<CmdShell>;
 	(*this)["_ALL:SHELL"] = new_cmd_obj<CmdShell>;
 	(*this)["_ALL:<"] = new_cmd_obj<CmdShell>;
+	(*this)["_ALL:@"] = new_cmd_obj<CmdEnv>;
 
 }
 
@@ -503,7 +510,7 @@ int run_cmd(CmdCtx *pCtx, const char * cmd, int dry)
 	call_notify(nt);
 
 	nt.type = uuu_notify::NOTIFY_CMD_START;
-	nt.str = (char *)p->m_cmd.c_str();
+	nt.str = (char *)p->get_cmd().c_str();
 	call_notify(nt);
 
 	if (typeid(*p) != typeid(CfgCmd))
@@ -662,11 +669,76 @@ int CmdShell::run(CmdCtx*pCtx)
 	}
 	else
 	{
-		set_last_err_string("Error: Failed to read the pipe to the end.\n");
+		set_last_err_string("Error: Failed to read the end of the pipe.\n");
 		return -1;
 	}
 
 	return 0;
+}
+
+int CmdEnv::parser(char *p)
+{
+	if (p)
+		m_cmd = p;
+
+	size_t pos = 0;
+
+	if (parser_protocal(p, pos))
+		return -1;
+	if (pos == string::npos || pos >= m_cmd.size())
+		return -1;
+
+	m_unfold_cmd = m_cmd.substr(0, pos);
+	m_unfold_cmd.append(" ");
+
+	// read the '@'
+	get_next_param(m_cmd, pos);
+
+	auto cmd = m_cmd.substr(pos);
+
+	regex expr { "@[0-9a-zA-Z_]+@" };
+	smatch result;
+	auto last_pos = static_cast<const string&>(cmd).begin();
+	auto cmd_end = static_cast<const string&>(cmd).end();
+	while (regex_search(last_pos, cmd_end, result, expr)) {
+		for (auto &i : result) {
+			string key { i.first + 1, i.second - 1 };
+			auto value = [&key]() -> pair<bool, string> {
+#ifndef WIN32
+				auto ptr = getenv(key.c_str());
+				if (ptr)
+					return {true, ptr};
+				return {false, {}};
+#else
+				size_t len;
+				getenv_s(&len, nullptr, 0, key.c_str());
+				if (!len)
+					return {false, {}};
+				string value(len-1, '\0');
+				getenv_s(&len, &value[0], len, key.c_str());
+				return {true, value};
+#endif
+			}();
+			if (!value.first) {
+				set_last_err_string("variable '" + key + "' is not defined");
+				return -1;
+			}
+			auto begin = value.second.begin();
+			auto end = value.second.end();
+			auto pos = find_if(begin, end, [](char c){ return c == '\r' || c == '\n'; });
+			m_unfold_cmd.append(&*last_pos, distance(last_pos, i.first));
+			m_unfold_cmd.append(begin, pos);
+			last_pos = i.second;
+		}
+	}
+	m_unfold_cmd.append(&*last_pos);
+
+	return 0;
+}
+
+int CmdEnv::run(CmdCtx *p)
+{
+	return run_cmd(p, m_unfold_cmd.c_str(), 0);
 }
 
 int run_cmds(const char *procotal, CmdCtx *p)
@@ -795,7 +867,7 @@ int check_version(string str)
 	if (ver > cur)
 	{
 		string str;
-		str = "Current uuu version is too low, please download latest one";
+		str = "This version of uuu is too old, please download the latest one";
 		set_last_err_string(str);
 		return -1;
 	}

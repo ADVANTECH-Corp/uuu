@@ -220,10 +220,6 @@ SDPBootCmd::SDPBootCmd(char *p) : SDPCmdBase(p)
 	insert_param_info("-nojump", &m_nojump, Param::Type::e_bool);
 	insert_param_info("-cleardcd", &m_clear_dcd, Param::Type::e_bool);
 	insert_param_info("-dcdaddr", &m_dcd_addr, Param::Type::e_uint32);
-
-	m_nojump = false;
-	m_clear_dcd = false;
-	m_dcd_addr = 0;
 }
 
 int SDPBootCmd::run(CmdCtx *ctx)
@@ -372,7 +368,7 @@ int SDPWriteCmd::run(CmdCtx*ctx)
 		}
 		if (pIvt == nullptr)
 		{
-			set_last_err_string("Can find validate IVT header");
+			set_last_err_string("Cannot find valid IVT header");
 			return -1;
 		}
 
@@ -562,9 +558,7 @@ int SDPWriteMemCmd::run(CmdCtx *ctx)
 
 SDPJumpCmd::SDPJumpCmd(char *p) : SDPCmdBase(p)
 {
-	m_jump_addr = 0;
 	m_spdcmd.m_cmd = ROM_KERNEL_CMD_JUMP_ADDR;
-	m_clear_dcd = false;
 	insert_param_info("jump", nullptr, Param::Type::e_null);
 	insert_param_info("-f", &m_filename, Param::Type::e_string_filename);
 	insert_param_info("-ivt", &m_Ivt, Param::Type::e_bool);
@@ -656,8 +650,7 @@ SDPBootlogCmd::SDPBootlogCmd(char *p) : SDPCmdBase(p)
 
 int SDPBootlogCmd::run(CmdCtx *ctx)
 {
-	HIDTrans dev;
-	dev.m_read_timeout = 2000;
+	HIDTrans dev{2000};
 
 	if (dev.open(ctx->m_dev))
 		return -1;

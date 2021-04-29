@@ -136,6 +136,7 @@ void print_help(bool detail = false)
 		"    -m          USBPATH Only monitor these paths.\n"
 		"                    -m 1:2 -m 1:3\n\n"
 		"    -t          Timeout second for wait known usb device appeared\n"
+		"    -e          set environment variable key=value\n"
 		"    -pp         usb polling period in milliseconds\n"
 		"uuu -s          Enter shell mode. uuu.inputlog record all input commands\n"
 		"                you can use \"uuu uuu.inputlog\" next time to run all commands\n\n"
@@ -200,9 +201,10 @@ int print_cfg(const char *pro, const char * chip, const char * /*compatible*/, u
 	return 0;
 }
 
-int print_udev_rule(const char *pro, const char * chip, const char * /*compatible*/, uint16_t vid, uint16_t pid, uint16_t bcdmin, uint16_t bcdmax, void * /*p*/)
+int print_udev_rule(const char * /*pro*/, const char * /*chip*/, const char * /*compatible*/,
+	uint16_t vid, uint16_t pid, uint16_t /*bcdmin*/, uint16_t /*bcdmax*/, void * /*p*/)
 {
-	printf("SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"%04x\", ATTRS{idProduct}==\"%04x\", MODE=\"0666\"\n",
+	printf("SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"%04x\", ATTRS{idProduct}==\"%04x\", TAG+=\"uaccess\"\n",
 			vid, pid);
 	return 0;
 }
@@ -758,13 +760,13 @@ int runshell(int shell)
 void print_udev()
 {
 	uuu_for_each_cfg(print_udev_rule, NULL);
-	fprintf(stderr, "\n1: put above udev run into /etc/udev/rules.d/99-uuu.rules\n");
-	fprintf(stderr, "\tsudo sh -c \"uuu -udev >> /etc/udev/rules.d/99-uuu.rules\"\n");
+	fprintf(stderr, "\n1: put above udev run into /etc/udev/rules.d/70-uuu.rules\n");
+	fprintf(stderr, "\tsudo sh -c \"uuu -udev >> /etc/udev/rules.d/70-uuu.rules\"\n");
 	fprintf(stderr, "2: update udev rule\n");
-	fprintf(stderr, "\tsudo udevadm control --reload-rules\n");
+	fprintf(stderr, "\tsudo udevadm control --reload\n");
 }
 
-int print_usb_device(const char *path, const char *chip, const char *pro, uint16_t vid, uint16_t pid, uint16_t bcd, void *p)
+int print_usb_device(const char *path, const char *chip, const char *pro, uint16_t vid, uint16_t pid, uint16_t bcd, void * /*p*/)
 {
 	printf("\t%s\t %s\t %s\t 0x%04X\t0x%04X\t 0x%04X\n", path, chip, pro, vid, pid, bcd);
 	return 0;
@@ -791,6 +793,25 @@ int main(int argc, char **argv)
 		{
 			print_udev();
 			return 0;
+		}
+		if (s == "-bshow")
+		{
+			if (2 == argc || g_BuildScripts.find(argv[2]) == g_BuildScripts.end())
+			{
+				fprintf(stderr, "Error, must be have script name: ");
+				g_BuildScripts.ShowCmds(stderr);
+				fprintf(stderr,"\n");
+				return -1;
+			}
+			else
+			{
+				string str = g_BuildScripts[argv[2]].m_script;
+				while (str.size() > 0 && (str[0] == '\n' || str[0] == ' '))
+					str = str.erase(0,1);
+
+				printf("%s", str.c_str());
+				return 0;
+			}
 		}
 	}
 
@@ -876,6 +897,18 @@ int main(int argc, char **argv)
 				print_lsusb();
 				return 0;
 			}
+			else if (s == "-e")
+			{
+#ifndef WIN32
+	#define _putenv putenv
+#endif
+				i++;
+				if (_putenv(argv[i]))
+				{
+					printf("error, failed to set '%s', environment parameter must have the from key=value\n", argv[i]);
+					return -1;
+				}
+			}
 			else if (s == "-b" || s == "-brun")
 			{
 				if (i + 1 == argc)
@@ -904,8 +937,6 @@ int main(int argc, char **argv)
 					string tmpCmdFileName = argv[i + 1];
 					tmpCmd.m_cmd = tmpCmdFileName.c_str();
 
-					size_t filesize;
-
 					std::ifstream t(tmpCmdFileName);
 					std::string fileContents((std::istreambuf_iterator<char>(t)),
 						std::istreambuf_iterator<char>());
@@ -928,21 +959,6 @@ int main(int argc, char **argv)
 					cmd_script = g_BuildScripts[argv[i + 1]].replace_script_args(args);
 				}
 				break;
-			}
-			else if (s == "-bshow")
-			{
-				if (i + 1 == argc || g_BuildScripts.find(argv[i+1]) == g_BuildScripts.end())
-				{
-					printf("error, must be have script name: ");
-					g_BuildScripts.ShowCmds();
-					printf("\n");
-					return -1;
-				}
-				else
-				{
-					printf("%s", g_BuildScripts[argv[i + 1]].m_script.c_str());
-					return 0;
-				}
 			}
 			else
 			{

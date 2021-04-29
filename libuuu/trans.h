@@ -34,20 +34,23 @@
 #include <string>
 #include <vector>
 
-using namespace std;
-
 class TransBase
 {
 public:
-	string m_path;
-	void * m_devhandle = nullptr;
+	TransBase() = default;
+	TransBase(const TransBase&) = delete;
+	TransBase& operator=(const TransBase&) = delete;
 	virtual ~TransBase();
+
 	virtual int open(void *) { return 0; }
 	virtual int close() { return 0; }
 	virtual int write(void *buff, size_t size) = 0;
 	virtual int read(void *buff, size_t size, size_t *return_size) = 0;
-	int write(vector<uint8_t> & buff) { return write(buff.data(), buff.size()); }
-	int read(vector<uint8_t> &buff);
+	int write(std::vector<uint8_t> & buff) { return write(buff.data(), buff.size()); }
+	int read(std::vector<uint8_t> &buff);
+
+protected:
+	void * m_devhandle = nullptr;
 };
 
 class EPInfo
@@ -62,38 +65,45 @@ public:
 class USBTrans : public TransBase
 {
 public:
-	vector<EPInfo> m_EPs;
 	int open(void *p) override;
 	int close() override;
+
+protected:
+	std::vector<EPInfo> m_EPs;
 };
 class HIDTrans : public USBTrans
 {
-	int m_set_report = 9;
-	int m_outEP = 0;
 public:
-	int m_read_timeout = 1000;
-	void set_hid_out_ep(int ep) noexcept { m_outEP = ep; }
+	HIDTrans(int read_timeout = 1000) : m_read_timeout{read_timeout} {}
+	~HIDTrans() override { if (m_devhandle) close();  m_devhandle = nullptr; }
 
 	int open(void *p) override;
-	~HIDTrans() override { if (m_devhandle) close();  m_devhandle = nullptr; }
+	void set_hid_out_ep(int ep) noexcept { m_outEP = ep; }
 	int write(void *buff, size_t size) override;
 	int read(void *buff, size_t size, size_t *return_size) override;
+
+private:
+	int m_outEP = 0;
+	const int m_read_timeout = 1000;
+	int m_set_report = 9;
 };
 
 class BulkTrans : public USBTrans
 {
 public:
-	EPInfo m_ep_in;
-	EPInfo m_ep_out;
-	size_t m_MaxTransPreRequest = 0x100000;
-	int m_b_send_zero = 0;
-	uint64_t m_timeout = 2000;
+	BulkTrans(uint64_t timeout = 2000) : m_timeout{timeout} {}
+	~BulkTrans() override { if (m_devhandle) close();  m_devhandle = nullptr; }
 
 	int open(void *p) override;
-
-	~BulkTrans() override { if (m_devhandle) close();  m_devhandle = nullptr; }
 	int write(void *buff, size_t size) override;
 	int read(void *buff, size_t size, size_t *return_size) override;
+
+private:
+	size_t m_MaxTransPreRequest = 0x100000;
+	int m_b_send_zero = 0;
+	EPInfo m_ep_in;
+	EPInfo m_ep_out;
+	uint64_t m_timeout = 2000;
 };
 
 int polling_usb(std::atomic<int>& bexit);

@@ -87,13 +87,12 @@ using namespace std;
 HttpStream::HttpStream()
 {
 	m_buff.empty();
-	m_socket = 0;
 	m_hConnect = 0;
 	m_hSession = 0;
 	m_hRequest = 0;
 }
 
-int HttpStream::HttpGetHeader(std::string host, std::string path, int port)
+int HttpStream::HttpGetHeader(std::string host, std::string path, int port, bool ishttps)
 {
 
 	m_hSession = WinHttpOpen(L"WinHTTP UUU/1.0",
@@ -125,7 +124,7 @@ int HttpStream::HttpGetHeader(std::string host, std::string path, int port)
 	m_hRequest = WinHttpOpenRequest(m_hConnect, L"GET", wpath.c_str(),
 			nullptr, WINHTTP_NO_REFERER,
 			WINHTTP_DEFAULT_ACCEPT_TYPES,
-			port==443?WINHTTP_FLAG_SECURE:0);
+			ishttps ?WINHTTP_FLAG_SECURE:0);
 
 	BOOL  bResults = FALSE;
 	if (!m_hRequest)
@@ -234,7 +233,6 @@ HttpStream::~HttpStream()
 HttpStream::HttpStream()
 {
 	m_buff.empty();
-	m_ssl = nullptr;
 }
 
 int HttpStream::SendPacket(char *buff, size_t sz)
@@ -256,7 +254,7 @@ int HttpStream::RecvPacket(char *buff, size_t sz)
 	return recv(m_socket, buff, sz, 0);
 }
 
-int HttpStream::HttpGetHeader(std::string host, std::string path, int port)
+int HttpStream::HttpGetHeader(std::string host, std::string path, int port, bool ishttps)
 {
 	int ret;
 	addrinfo *pAddrInfo;
@@ -289,7 +287,7 @@ int HttpStream::HttpGetHeader(std::string host, std::string path, int port)
 		return -1;
 	}
 
-	if(port == 443)
+	if(ishttps)
 	{
 #ifdef UUUSSL
 
@@ -323,7 +321,7 @@ int HttpStream::HttpGetHeader(std::string host, std::string path, int port)
 #endif
         }
 
-	if(port == 443)
+	if(ishttps)
 		path = "https://" + host + path;
 
 	string request = "GET " + path + " HTTP/1.1\r\n";
